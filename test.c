@@ -6,8 +6,10 @@
 
 const int squareSize = 400; //size of the squares in the maze
 const float tickLength = 3.25;
+const int speed = 31; // base speed
 /**
- * positions are represented by a 4 bit integer
+ * At every index in the matrix there is an integer
+ * the first four bits represent the four directions
  * for example 0101 means that there are obstacles north and south
  */
 const int north =1; //0001
@@ -15,10 +17,19 @@ const int east =2; //0010
 const int south =4; //0100
 const int west =8; //1000
 
+/*
+|12|13|14|15|
+|08|09|10|11|   Nodes indicies in the marix
+|04|05|06|07|
+|00|01|02|03|
+ */
 unsigned int matrix [16] = {0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0};
-unsigned int discovered [16] = {0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0};
-int direction = 1;
-int irLeft, irRight;  //current left and right distances
+unsigned int discovered [16] = {0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0}; //0-not discovered 1-discovered
+int direction = 1; //facing direction of the robot; 1-north 2-east 4-south 8-west
+int irLeft, irRight;  //Infrared distances left and right
+int initialLeft=0; //The robot calibrates in the beginning and uses the initial left and right distances as a reference
+int initialRight=0;
+int targetFront = 21;
 
 /**
  * STACK IMPLEMETATION
@@ -82,21 +93,39 @@ int stackPush(int data)
  */
 
  /**
-  * gets the infrared sensor values
+  * Tries to detect an obstacle at the maximum possible distance 20 times.
   */
  void getIR()
  {
    irLeft = 0;
    irRight = 0;
    for (int dacVal = 0; dacVal < 160; dacVal += 8) {
-       dac_ctr(26, 0, dacVal);
+       dac_ctr(26, 0, 0);
        freqout(11, 1, 38000);
        irLeft += input(10);
 
-       dac_ctr(27, 1, dacVal);
+       dac_ctr(27, 1, 0);
        freqout(1, 1, 38000);
        irRight += input(2);
    }
+ }
+/**
+ * Uses the infrared sensor to detect obstacles on both sides and returns values
+ * ranging from 0 to 20 based on how close they are.
+ */
+ void getIRNav()
+ {
+   irLeft = 0;
+   irRight = 0;
+   for(int dacVal = 0; dacVal < 160; dacVal += 8)
+  {
+    dac_ctr(26, 0, dacVal);
+    freqout(11, 1, 38000);
+    irLeft += input(10);
+    dac_ctr(27, 1, dacVal);
+    freqout(1, 1, 38000);
+    irRight += input(2);
+  }
  }
 
  int abs(int x)
@@ -111,7 +140,10 @@ int stackPush(int data)
      drive_goto(0,0);
      drive_goto(51,-51);
  }
-
+/**
+ * returns the number indicating what the direction is going to be
+ * if you turn right
+ */
  unsigned int directionRight(int current)
  {
    if(current == 8)
@@ -130,6 +162,10 @@ int stackPush(int data)
    return current/2;
  }
 
+/**
+ * Checks if the bit corresponding to north is 1.
+ * If it is returns 1 because there must be an obstacle north
+ */
  int checkNorth(int bits)
  {
    if ((bits&north)==north)
@@ -166,12 +202,37 @@ int stackPush(int data)
  /**
   * Moves one square ahead
   */
-  void driveSquare()
+void driveSquare()
+{
+  //IF distance is more than initial on both sides but one is below 20 try to go closer to that wall
+  int distance = squareSize/tickLength;
+  int leftStart, rightStart, left, right;
+  drive_getTicks(&leftStart,&rightStart);
+  left = leftStart;
+  right = rightStart;
+  int tick = squareSize/tickLength;
+  while(left<leftStart+tick|| right<rightStart+tick)
   {
-    int ticks = squareSize / tickLength;
-    drive_goto(ticks,ticks);
+    getIRNav();
+    int leftAdjust = 0;
+    int rightAdjust = 0;
+    if(irLeft<initialLeft)
+    {
+      leftAdjust = (int)((double)(initialLeft-irLeft));
+    }
+    if(irRight<initialRight)
+    {
+      rightAdjust = (int)((double)(initialRight-irRight));
+    }
+    drive_getTicks(&left,&right);
+    drive_speed(speed+leftAdjust,speed+rightAdjust);
   }
+  drive_speed(0,0);
+}
 
+/**
+ * Analyzes a square and updates the matrix if it detects obstacles
+ */
 void analyze(int squareID)
 {
   getIR();
@@ -183,7 +244,7 @@ void analyze(int squareID)
   {
     matrix[squareID] = matrix[squareID]|directionRight(direction);
   }
-  if(ping_cm(8)<20)
+  if(ping_cm(8)<25)
   {
     matrix[squareID] = matrix[squareID]|direction;
   }
@@ -198,7 +259,9 @@ void turnRight()
 {
   drive_goto(26,-25);
 }
-
+/**
+ * Turns the robot so that it faces north
+ */
 void faceNorth()
 {
   if(direction==2)
@@ -263,6 +326,9 @@ void faceWest()
   }
   direction=8;
 }
+/**
+ * Goes to an adjacent square.
+ */
 void gotoAdjacent(int from, int to)
 {
   if(to==from+1)
@@ -286,14 +352,20 @@ void gotoAdjacent(int from, int to)
     driveSquare();
   }
 }
-
+/**
+ * Checks if the two squares are adjacent(the difference in their indecies)
+ * has to be 1 or 4
+ */
 int isAdjacent(int from, int to)
 {
   if(abs(from-to)==4||abs(from-to)==1)
   {return 1;}
   return 0;
 }
-
+/**
+ * Checks if there are any accessible neighbours of the square
+ * and if they are not visited, pushes them to the stack.
+ */
 void pushNextToStack(int index)
 {
   if(checkNorth(matrix[index])==0&&discovered[index+4]==0)
@@ -314,17 +386,19 @@ void pushNextToStack(int index)
   }
 }
 
-//extract as much as possible into methods
 
 /**
  * DepthFirstSearch that is used to build a map for the graph
+ * and then return to the initial position.
  */
 void depthFirstSearch()
 {
+  int counter = 0;
   int currentpath [16] = {0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0};
-  int counter =0;
-  driveSquare();
+  int found =0;
+  driveSquare(); //go to Square 0
   analyze(0);
+  found++;
   if(checkNorth(matrix[0])==0)
   {
     stackPush(0+4);
@@ -343,9 +417,9 @@ void depthFirstSearch()
     {
       gotoAdjacent(current,next);
     }
-    else
+    else                            //next is not adjacent to current
     {
-      while(isAdjacent(current,next)!=1)
+      while(isAdjacent(current,next)!=1)//Go back the current path until it becomes adjacent
       {
         gotoAdjacent(current,currentpath[counter]);
         current = currentpath[counter];
@@ -355,12 +429,31 @@ void depthFirstSearch()
     }
     analyze(next);
     discovered[next]=1;
+    found ++;
+    printf("Found: %d \n",found );
     pushNextToStack(next);
     counter ++;
     currentpath[counter]=current;
     current = next;
+    if(found==16) //If 16 squares are discovered, stop.
+    {
+      break;
+    }
   }
-
+  while(counter>=0)//Go back the current path to the beginning.
+  {
+    gotoAdjacent(current,currentpath[counter]);
+    current = currentpath[counter];
+    counter--;
+  }
+  faceSouth(); //Face south and go to the initial square
+  driveSquare();
+  while(ping_cm(8)>targetFront)
+  {
+    drive_speed(10,10);
+  }
+  drive_speed(0,0);
+  rotate180();
 }
 
 
@@ -373,7 +466,18 @@ void center()
   drive_goto(ticks, ticks);
 }
 
-unsigned int testMatrix[16] = {13,4,4,6,12,2,10,10,10,9,2,11,9,5,1,7};
+/**
+ * Calibrates the robot
+ */
+void calibrate()
+{
+  getIRNav();
+  initialLeft = irLeft;
+  initialRight = irRight;
+}
+
+//Dijkstra
+//unsigned int testMatrix[16] = {13,4,4,6,12,2,10,10,10,9,2,11,9,5,1,7};
 unsigned int distance[16];
 int turns[15];
 int visited[16];
@@ -398,7 +502,7 @@ void Dijkstra()
         minNode=j;
       }
     visited[minNode]=1;
-    if(checkEast(testMatrix[minNode])==0)
+    if(checkEast(matrix[minNode])==0)
     if((distance[minNode+1] > distance[minNode]+1) || (distance[minNode+1] == distance[minNode]+1 && turns[minNode+1]>turns[minNode]))
     {
       distance[minNode+1] = distance[minNode]+1;
@@ -410,7 +514,7 @@ void Dijkstra()
           turns[minNode+1]++;
       }
     }
-    if(checkNorth(testMatrix[minNode])==0)
+    if(checkNorth(matrix[minNode])==0)
     if((distance[minNode+4] > distance[minNode]+1)  || (distance[minNode+4] == distance[minNode]+1 && turns[minNode+4]>turns[minNode]))
     {
       distance[minNode+4] = distance[minNode]+1;
@@ -422,7 +526,7 @@ void Dijkstra()
           turns[minNode+4]++;
       }
     }
-    if(checkWest(testMatrix[minNode])==0)
+    if(checkWest(matrix[minNode])==0)
     if((distance[minNode-1] > distance[minNode]+1) || (distance[minNode-1] == distance[minNode]+1 && turns[minNode-1]>turns[minNode]))
     {
       distance[minNode-1] = distance[minNode]+1;
@@ -434,7 +538,7 @@ void Dijkstra()
           turns[minNode-1]++;
       }
     }
-    if(checkSouth(testMatrix[minNode])==0)
+    if(checkSouth(matrix[minNode])==0)
     if((distance[minNode-4] > distance[minNode]+1)  || (distance[minNode-4] == distance[minNode]+1 && turns[minNode-4]>turns[minNode]))
     {
       distance[minNode-4] = distance[minNode]+1;
@@ -448,7 +552,7 @@ void Dijkstra()
     }
   }
 }
-
+//Prints the path produced by dijkstra
 void showDijkstra()
 {
   int x=0;
@@ -460,8 +564,9 @@ void showDijkstra()
 }
 
  int main() {
-//   center();
-//   depthFirstSearch();
+   calibrate();
+   center();
+   depthFirstSearch();
    Dijkstra();
    showDijkstra();
 }
