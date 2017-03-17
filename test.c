@@ -6,7 +6,6 @@
 
 const int squareSize = 365; //size of the squares in the maze
 const float tickLength = 3.25;
-const int speed = 40; // base speed
 /**
  * At every index in the matrix there is an integer
  * the first four bits represent the four directions
@@ -23,7 +22,7 @@ const int west =8; //1000
 |04|05|06|07|
 |00|01|02|03|
  */
-unsigned int matrix [16] = {0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0};
+unsigned int matrix [16] = {9,4,5,6,12,2,14,10,10,9,2,11,9,5,1,7};
 unsigned int discovered [16] = {0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0}; //0-not discovered 1-discovered
 int direction = 1; //facing direction of the robot; 1-north 2-east 4-south 8-west
 int irLeft, irRight;  //Infrared distances left and right
@@ -531,7 +530,6 @@ void center()
 
 
 //Dijkstra
-//unsigned int testMatrix[16] = {13,4,4,6,12,2,10,10,10,9,2,11,9,5,1,7};
 unsigned int distance[16];
 int turns[15];
 int visited[16];
@@ -606,20 +604,40 @@ void Dijkstra()
     }
   }
 }
-//Prints the path produced by dijkstra
+//Prints the path produced by dijkstra and adds it to an array
+unsigned int path [16];
+int length =0;
+
 void showDijkstra()
 {
   int x=0;
   while(x!=16)
   {
     printf("%d \n", x);
+    path[length]=x;
     x = parent[x];
+    length++;
   }
 }
 
+void exitMaze()
+{
+  center();
+  driveSquare();
+  int from = path[0];
+  for(int i=1;i<length;i++)
+  {
+    gotoAdjacent(from,path[i]);
+    from = path[i];
+  }
+}
+
+
+//matrix in beginning is changed for testing. Revert it to 0,0,0... and uncomment DFS below
  int main() {
-   center();
-   depthFirstSearch();
+  // center();
+  // depthFirstSearch();
    Dijkstra();
    showDijkstra();
+   exitMaze();
 }
