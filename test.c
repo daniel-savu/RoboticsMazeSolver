@@ -204,26 +204,6 @@ int stackContains(int data)
    return 0;
  }
 
-int obstacleOnlyLeft()
-{
-  getIR();
-  if(irLeft==0&&irRight!=0)
-  {
-    return 1;
-  }
-  return 0;
-}
-
-int obstacleOnlyRight()
-{
-  getIR();
-  if(irRight==0&&irLeft!=0)
-  {
-    return 1;
-  }
-  return 0;
-}
-
 /**
  * Moves one square ahead
  */
@@ -399,6 +379,41 @@ void gotoAdjacent(int from, int to)
     driveSquare();
   }
 }
+
+int isAccessible(int from, int to)
+{
+  int difference = to-from;
+  if(difference==4)
+  {
+    if(checkNorth(matrix[from])==0)
+    {
+      return 1;
+    }
+  }
+  if(difference==1)
+  {
+    if(checkEast(matrix[from])==0)
+    {
+      return 1;
+    }
+  }
+  if(difference==-4)
+  {
+    if(checkSouth(matrix[from])==0)
+    {
+      return 1;
+    }
+  }
+  if(difference==-1)
+  {
+    if(checkWest(matrix[from])==0)
+    {
+      return 1;
+    }
+  }
+  return 0;
+}
+
 /**
  * Checks if the two squares are adjacent(the difference in their indecies)
  * has to be 1 or 4
@@ -461,13 +476,13 @@ void depthFirstSearch()
   {
     next = stackPop();
     printf("Current %d Next %d \n",current, next );
-    if(isAdjacent(current,next)==1) //next is adjacent to current
+    if(isAdjacent(current,next)==1&&isAccessible(current,next)) //next is adjacent to current
     {
       gotoAdjacent(current,next);
     }
     else                            //next is not adjacent to current
     {
-      while(isAdjacent(current,next)!=1)//Go back the current path until it becomes adjacent
+      while((isAdjacent(current,next)!=1)||isAccessible(current,next)==0)//Go back the current path until it becomes adjacent
       {
         gotoAdjacent(current,currentpath[counter]);
         current = currentpath[counter];
