@@ -22,7 +22,7 @@ const int west =8; //1000
 |04|05|06|07|
 |00|01|02|03|
  */
-unsigned int matrix [16] = {9,4,5,6,12,2,14,10,10,9,2,11,9,5,1,7};
+unsigned int matrix [16] = {0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0};
 unsigned int discovered [16] = {0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0}; //0-not discovered 1-discovered
 int direction = 1; //facing direction of the robot; 1-north 2-east 4-south 8-west
 int irLeft, irRight;  //Infrared distances left and right
@@ -516,6 +516,7 @@ void depthFirstSearch()
   }
   drive_speed(0,0);
   rotate180();
+  direction=1;
 }
 
 
@@ -622,11 +623,11 @@ void showDijkstra()
 
 void exitMaze()
 {
-  center();
   driveSquare();
   int from = path[0];
   for(int i=1;i<length;i++)
   {
+    printf("Goto from %d to %d \n",from, path[i] );
     gotoAdjacent(from,path[i]);
     from = path[i];
   }
@@ -635,8 +636,8 @@ void exitMaze()
 
 //matrix in beginning is changed for testing. Revert it to 0,0,0... and uncomment DFS below
  int main() {
-  // center();
-  // depthFirstSearch();
+   center();
+   depthFirstSearch();
    Dijkstra();
    showDijkstra();
    exitMaze();
