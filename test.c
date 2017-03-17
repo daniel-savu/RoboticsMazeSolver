@@ -4,9 +4,9 @@
 #include "ping.h"
 #include "math.h"
 
-const int squareSize = 400; //size of the squares in the maze
+const int squareSize = 365; //size of the squares in the maze
 const float tickLength = 3.25;
-const int speed = 31; // base speed
+const int speed = 40; // base speed
 /**
  * At every index in the matrix there is an integer
  * the first four bits represent the four directions
@@ -27,8 +27,6 @@ unsigned int matrix [16] = {0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0};
 unsigned int discovered [16] = {0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0}; //0-not discovered 1-discovered
 int direction = 1; //facing direction of the robot; 1-north 2-east 4-south 8-west
 int irLeft, irRight;  //Infrared distances left and right
-int initialLeft=0; //The robot calibrates in the beginning and uses the initial left and right distances as a reference
-int initialRight=0;
 int targetFront = 21;
 
 /**
@@ -88,9 +86,35 @@ int stackPush(int data)
     printf("Stack is full, cannot insert data\n");
   }
 }
+int stackContains(int data)
+{
+  for(int i=0;i<=top;i++)
+  {
+    if(stack[i]==data)
+    {
+      return 1;
+    }
+  }
+  return 0;
+}
 /**
  * STACK IMPLEMETATION
  */
+
+ void calculateIR(int * irLeft, int * irRight, int * irLeftOld, int * irRightOld){
+   *irLeftOld = *irLeft;
+   *irRightOld = *irRight;
+   *irLeft=*irRight=0;
+   for(int dacVal = 0; dacVal < 160; dacVal += 8) {
+     dac_ctr(26, 0, dacVal);
+     freqout(11, 1, 38000);
+     *irLeft += input(10);
+
+     dac_ctr(27, 1, dacVal);
+     freqout(1, 1, 38000);
+     *irRight += input(2);
+   }
+ }
 
  /**
   * Tries to detect an obstacle at the maximum possible distance 20 times.
@@ -109,25 +133,6 @@ int stackPush(int data)
        irRight += input(2);
    }
  }
-/**
- * Uses the infrared sensor to detect obstacles on both sides and returns values
- * ranging from 0 to 20 based on how close they are.
- */
- void getIRNav()
- {
-   irLeft = 0;
-   irRight = 0;
-   for(int dacVal = 0; dacVal < 160; dacVal += 8)
-  {
-    dac_ctr(26, 0, dacVal);
-    freqout(11, 1, 38000);
-    irLeft += input(10);
-    dac_ctr(27, 1, dacVal);
-    freqout(1, 1, 38000);
-    irRight += input(2);
-  }
- }
-
  int abs(int x)
  {
      if(x<0)
@@ -199,35 +204,65 @@ int stackPush(int data)
    return 0;
  }
 
- /**
-  * Moves one square ahead
-  */
-void driveSquare()
+int obstacleOnlyLeft()
 {
-  //IF distance is more than initial on both sides but one is below 20 try to go closer to that wall
-  int distance = squareSize/tickLength;
-  int leftStart, rightStart, left, right;
-  drive_getTicks(&leftStart,&rightStart);
-  left = leftStart;
-  right = rightStart;
-  int tick = squareSize/tickLength;
-  while(left<leftStart+tick|| right<rightStart+tick)
+  getIR();
+  if(irLeft==0&&irRight!=0)
   {
-    getIRNav();
-    int leftAdjust = 0;
-    int rightAdjust = 0;
-    if(irLeft<initialLeft)
-    {
-      leftAdjust = (int)((double)(initialLeft-irLeft));
-    }
-    if(irRight<initialRight)
-    {
-      rightAdjust = (int)((double)(initialRight-irRight));
-    }
-    drive_getTicks(&left,&right);
-    drive_speed(speed+leftAdjust,speed+rightAdjust);
+    return 1;
   }
-  drive_speed(0,0);
+  return 0;
+}
+
+int obstacleOnlyRight()
+{
+  getIR();
+  if(irRight==0&&irLeft!=0)
+  {
+    return 1;
+  }
+  return 0;
+}
+
+/**
+ * Moves one square ahead
+ */
+void driveSquare(){
+  int dist = squareSize/tickLength;
+  int left, right, leftStart, rightStart;
+  int irLeft, irRight, irLeftOld, irRightOld;
+
+  drive_getTicks(&leftStart, &rightStart);
+  calculateIR(&irLeft, &irRight, &irLeftOld, &irRightOld);
+  left = leftStart, right = rightStart;
+  drive_setRampStep(6);
+
+  while(left < leftStart+dist || right < rightStart+dist){
+    drive_getTicks(&left, &right);
+
+    calculateIR(&irLeft, &irRight, &irLeftOld, &irRightOld);
+
+    int dl = irLeft-irLeftOld; if(dl>3||dl<-3) dl=0;
+    int dr = irRight-irRightOld; if(dr>3||dr<-3) dr=0;
+
+    int correcterLeft = (irRight-irLeft)*1; correcterLeft=0;
+    int correcterRight = (irLeft-irRight)*1; correcterRight=0;
+    if(left-leftStart>dist/3 || right-rightStart>dist/3)
+      correcterLeft=correcterRight=0;
+    correcterLeft += (dr - dl)*3;
+    correcterRight += (dl - dr)*3;
+    if(irLeft<6 && left-leftStart<dist*3/4) {correcterLeft+=8; correcterRight+=-8;}
+    if(irRight<6 && left-leftStart<dist*3/4) {correcterLeft+=-8; correcterRight+=8;}
+    if(irRight==20&&irLeft>12) {correcterRight+=1; correcterLeft-=1;}
+    if(irLeft==20&&irRight>12) {correcterLeft+=1; correcterRight-=1;}
+    correcterLeft *= 1.5;
+    correcterRight *= 1.6;
+     {correcterLeft/=2; correcterRight/=2;}
+    drive_rampStep(32*1.5+correcterLeft, 32*1.5+correcterRight);
+    pause(5);
+  }
+   drive_ramp(0,0);
+  drive_setRampStep(4);
 }
 
 /**
@@ -244,21 +279,33 @@ void analyze(int squareID)
   {
     matrix[squareID] = matrix[squareID]|directionRight(direction);
   }
-  if(ping_cm(8)<25)
+  if(ping_cm(8)<30)
   {
     matrix[squareID] = matrix[squareID]|direction;
   }
   printf("%d \n",matrix[squareID] );
 }
 
+void turnInPlace(double angle){
+  float wheelDistance = 32.8538f;
+  if(angle>PI) { turnInPlace(angle-2*PI); return; }
+  if(angle<-PI) { turnInPlace(angle+2*PI); return; }
+  double dist = wheelDistance/2*angle;
+  int ticks = (int)(dist);
+  drive_goto(0,0);
+  drive_goto(ticks, -ticks);
+  drive_goto(0,0);
+}
+
 void turnLeft()
 {
-  drive_goto(-25,26);
+  turnInPlace(-PI/2);
 }
 void turnRight()
 {
-  drive_goto(26,-25);
+  turnInPlace(PI/2);
 }
+
 /**
  * Turns the robot so that it faces north
  */
@@ -368,19 +415,19 @@ int isAdjacent(int from, int to)
  */
 void pushNextToStack(int index)
 {
-  if(checkNorth(matrix[index])==0&&discovered[index+4]==0)
+  if(checkNorth(matrix[index])==0&&discovered[index+4]==0&&(!stackContains(index+4)))
   {
     stackPush(index+4);
   }
-  if(checkEast(matrix[index])==0&&discovered[index+1]==0)
+  if(checkEast(matrix[index])==0&&discovered[index+1]==0&&(!stackContains(index+1)))
   {
     stackPush(index+1);
   }
-  if(checkSouth(matrix[index])==0&&discovered[index-4]==0)
+  if(checkSouth(matrix[index])==0&&discovered[index-4]==0&&(!stackContains(index-4)))
   {
     stackPush(index-4);
   }
-  if(checkWest(matrix[index])==0&&discovered[index-1]==0)
+  if(checkWest(matrix[index])==0&&discovered[index-1]==0&&(!stackContains(index-1)))
   {
     stackPush(index-1);
   }
@@ -413,6 +460,7 @@ void depthFirstSearch()
   while(!stackIsEmpty())
   {
     next = stackPop();
+    printf("Current %d Next %d \n",current, next );
     if(isAdjacent(current,next)==1) //next is adjacent to current
     {
       gotoAdjacent(current,next);
@@ -466,15 +514,6 @@ void center()
   drive_goto(ticks, ticks);
 }
 
-/**
- * Calibrates the robot
- */
-void calibrate()
-{
-  getIRNav();
-  initialLeft = irLeft;
-  initialRight = irRight;
-}
 
 //Dijkstra
 //unsigned int testMatrix[16] = {13,4,4,6,12,2,10,10,10,9,2,11,9,5,1,7};
@@ -564,7 +603,6 @@ void showDijkstra()
 }
 
  int main() {
-   calibrate();
    center();
    depthFirstSearch();
    Dijkstra();
